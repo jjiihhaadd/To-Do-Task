@@ -1,0 +1,6 @@
+{
+  "name": "Tasks",
+  "description": "A minimalist to-do list with AI tagging and push notifications.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

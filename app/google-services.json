@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "507921933058",
+    "project_id": "gen-lang-client-0946415145",
+    "storage_bucket": "gen-lang-client-0946415145.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:507921933058:android:8a1f3f7f335bdfabddd81b",
+        "android_client_info": {
+          "package_name": "com.tension.todo"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "507921933058-ond2p3mr20umc60o15vujsvqqk0vblmm.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.tension.todo",
+            "certificate_hash": "80512ccc7d26f0b52917b78dba95610ab59e1c17"
+          }
+        },
+        {
+          "client_id": "507921933058-qef0bjrmm4q81elvve83m644ogrq23sb.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBg9MVY-rISZBVTypohMAn6TuIbRR-vRZ8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "507921933058-qef0bjrmm4q81elvve83m644ogrq23sb.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
