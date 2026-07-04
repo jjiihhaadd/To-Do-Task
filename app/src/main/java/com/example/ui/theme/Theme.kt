@@ -24,14 +24,28 @@ private val ElegantDarkColorScheme = darkColorScheme(
     onError = OnErrorColor
 )
 
+private val ElegantLightColorScheme = lightColorScheme(
+    primary = PrimaryLight,
+    onPrimary = OnPrimaryLight,
+    background = BackgroundLight,
+    onBackground = OnBackgroundLight,
+    surface = BackgroundLight,
+    onSurface = OnBackgroundLight,
+    surfaceVariant = SurfaceVariantLight,
+    onSurfaceVariant = TextSecondaryLight,
+    outline = OutlineLight,
+    error = ErrorColorLight,
+    onError = OnErrorColorLight
+)
+
 @Composable
 fun MyApplicationTheme(
-  darkTheme: Boolean = true, // Force dark mode for Elegant Dark
+  darkTheme: Boolean = true,
   // Dynamic color is available on Android 12+
   dynamicColor: Boolean = false, // Disable dynamic to enforce custom theme
   content: @Composable () -> Unit,
 ) {
-  val colorScheme = ElegantDarkColorScheme
+  val colorScheme = if (darkTheme) ElegantDarkColorScheme else ElegantLightColorScheme
 
   MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
 }

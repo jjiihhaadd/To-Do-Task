@@ -12,5 +12,6 @@ data class Task(
     @field:JvmField
     val isCompleted: Boolean = false,
     val timestamp: Long = System.currentTimeMillis(),
-    val reminderTime: Long? = null
+    val reminderTime: Long? = null,
+    val photoBase64: String? = null
 )

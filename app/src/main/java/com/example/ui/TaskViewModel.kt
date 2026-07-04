@@ -38,6 +38,15 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow<List<Task>>(emptyList())
     val uiState: StateFlow<List<Task>> = _uiState.asStateFlow()
 
+    private val _isDarkTheme = MutableStateFlow(sharedPrefs.getBoolean("is_dark_theme", true))
+    val isDarkTheme: StateFlow<Boolean> = _isDarkTheme.asStateFlow()
+
+    fun toggleTheme() {
+        val nextValue = !_isDarkTheme.value
+        _isDarkTheme.value = nextValue
+        sharedPrefs.edit().putBoolean("is_dark_theme", nextValue).apply()
+    }
+
     val categories: StateFlow<List<String>> = _uiState.map { tasks ->
         tasks.map { it.category }.filter { it.isNotBlank() }.distinct().sorted()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -104,11 +113,11 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun addTask(title: String, description: String, category: String, reminderTime: Long? = null) {
+    fun addTask(title: String, description: String, category: String, reminderTime: Long? = null, photoBase64: String? = null) {
         val user = auth.currentUser
         if (user != null) {
             val ref = firestore.collection("users").document(user.uid).collection("tasks").document()
-            val task = Task(id = ref.id, title = title, description = description, category = category, reminderTime = reminderTime)
+            val task = Task(id = ref.id, title = title, description = description, category = category, reminderTime = reminderTime, photoBase64 = photoBase64)
             ref.set(task)
         } else {
             val localTasks = loadLocalTasks().toMutableList()
@@ -119,7 +128,8 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 category = category,
                 isCompleted = false,
                 timestamp = System.currentTimeMillis(),
-                reminderTime = reminderTime
+                reminderTime = reminderTime,
+                photoBase64 = photoBase64
             )
             localTasks.add(0, newTask)
             saveLocalTasks(localTasks)

@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,6 +39,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -50,6 +60,15 @@ import com.example.ui.theme.*
 
 import com.example.BuildConfig
 import coil.compose.AsyncImage
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.Image
+import androidx.compose.material.icons.filled.Image
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -123,12 +142,22 @@ fun TaskListScreen(
                         )
                     }
                     
-                    // Avatar & About
+                    // Avatar, Theme Toggle & About
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { showAboutDialog = true }) {
                             Icon(
                                 imageVector = Icons.Default.Info,
                                 contentDescription = "About",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        
+                        val isDarkTheme by viewModel.isDarkTheme.collectAsStateWithLifecycle()
+                        IconButton(onClick = { viewModel.toggleTheme() }) {
+                            Icon(
+                                imageVector = if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
+                                contentDescription = if (isDarkTheme) "Switch Theme" else "Switch Theme",
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -242,13 +271,7 @@ fun TaskListScreen(
             }
 
             if (filteredTasks.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "No tasks yet. Enjoy your day!",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                EmptyStateComponent(onAddTaskClick = { showAddDialog = true })
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -271,8 +294,8 @@ fun TaskListScreen(
     if (showAddDialog) {
         AddTaskDialog(
             onDismiss = { showAddDialog = false },
-            onAdd = { title, desc, cat, reminderTime ->
-                viewModel.addTask(title, desc, cat, reminderTime)
+            onAdd = { title, desc, cat, reminderTime, photoBase64 ->
+                viewModel.addTask(title, desc, cat, reminderTime, photoBase64)
                 if (reminderTime != null) {
                     ReminderWorker.scheduleReminderAtTime(context, title, reminderTime)
                 }
@@ -290,8 +313,8 @@ fun TaskListScreen(
         EditTaskDialog(
             task = editingTask!!,
             onDismiss = { editingTask = null },
-            onSave = { title, desc, cat, reminderTime ->
-                viewModel.updateTask(editingTask!!.copy(title = title, description = desc, category = cat, reminderTime = reminderTime))
+            onSave = { title, desc, cat, reminderTime, photoBase64 ->
+                viewModel.updateTask(editingTask!!.copy(title = title, description = desc, category = cat, reminderTime = reminderTime, photoBase64 = photoBase64))
                 if (reminderTime != null) {
                     ReminderWorker.scheduleReminderAtTime(context, title, reminderTime)
                 }
@@ -346,7 +369,7 @@ fun CategoryTab(text: String, isSelected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .background(
-                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                 shape = RoundedCornerShape(16.dp)
             )
             .clickable { onClick() }
@@ -357,7 +380,7 @@ fun CategoryTab(text: String, isSelected: Boolean, onClick: () -> Unit) {
             text = text,
             fontSize = 14.sp,
             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else CategoryGrayText
+            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -494,6 +517,54 @@ fun TaskItem(task: Task, onToggle: () -> Unit, onEdit: () -> Unit, onDelete: () 
                 }
             }
             
+            if (!task.photoBase64.isNullOrBlank()) {
+                val bitmap = rememberBitmapFromBase64(task.photoBase64)
+                if (bitmap != null) {
+                    var showExpandedPhoto by remember { mutableStateOf(false) }
+                    
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Image(
+                        bitmap = bitmap,
+                        contentDescription = "Task Thumbnail",
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { showExpandedPhoto = true }
+                            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), RoundedCornerShape(12.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                    
+                    if (showExpandedPhoto) {
+                        AlertDialog(
+                            onDismissRequest = { showExpandedPhoto = false },
+                            confirmButton = {
+                                TextButton(onClick = { showExpandedPhoto = false }) {
+                                    Text("Close")
+                                }
+                            },
+                            title = { Text(task.title, color = MaterialTheme.colorScheme.onBackground) },
+                            text = {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(16.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Image(
+                                        bitmap = bitmap,
+                                        contentDescription = "Expanded Task Photo",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                }
+                            },
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    }
+                }
+            }
+            
             IconButton(onClick = onEdit) {
                 Icon(
                     imageVector = Icons.Default.Edit,
@@ -556,7 +627,7 @@ fun showDateTimePicker(
 @Composable
 fun AddTaskDialog(
     onDismiss: () -> Unit,
-    onAdd: (String, String, String, Long?) -> Unit,
+    onAdd: (String, String, String, Long?, String?) -> Unit,
     onAutoTag: (String, String, (String) -> Unit) -> Unit
 ) {
     var title by remember { mutableStateOf("") }
@@ -564,7 +635,16 @@ fun AddTaskDialog(
     var category by remember { mutableStateOf("") }
     var reminderTime by remember { mutableStateOf<Long?>(null) }
     var isTagging by remember { mutableStateOf(false) }
+    var photoBase64 by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            photoBase64 = uriToBase64(context, uri)
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -613,11 +693,58 @@ fun AddTaskDialog(
                                     imageVector = Icons.Default.AutoAwesome,
                                     contentDescription = "Auto Tag",
                                     tint = MaterialTheme.colorScheme.primary
-                                )
+                               )
                             }
                         }
                     }
                 )
+                
+                // Photo Attachment Row
+                if (photoBase64 != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(120.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                    ) {
+                        val bitmap = rememberBitmapFromBase64(photoBase64)
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap,
+                                contentDescription = "Task Photo Preview",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                        IconButton(
+                            onClick = { photoBase64 = null },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(8.dp)
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Clear,
+                                contentDescription = "Remove Photo",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { imagePickerLauncher.launch("image/*") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Image,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Add Photo Attachment")
+                    }
+                }
                 
                 // Reminder Selection Row
                 Row(
@@ -678,7 +805,7 @@ fun AddTaskDialog(
             Button(
                 onClick = {
                     if (title.isNotBlank()) {
-                        onAdd(title, description, category, reminderTime)
+                        onAdd(title, description, category, reminderTime, photoBase64)
                     }
                 }
             ) {
@@ -699,7 +826,7 @@ fun AddTaskDialog(
 fun EditTaskDialog(
     task: Task,
     onDismiss: () -> Unit,
-    onSave: (String, String, String, Long?) -> Unit,
+    onSave: (String, String, String, Long?, String?) -> Unit,
     onAutoTag: (String, String, (String) -> Unit) -> Unit
 ) {
     var title by remember { mutableStateOf(task.title) }
@@ -707,7 +834,16 @@ fun EditTaskDialog(
     var category by remember { mutableStateOf(task.category) }
     var reminderTime by remember { mutableStateOf(task.reminderTime) }
     var isTagging by remember { mutableStateOf(false) }
+    var photoBase64 by remember { mutableStateOf<String?>(task.photoBase64) }
     val context = LocalContext.current
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            photoBase64 = uriToBase64(context, uri)
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -762,6 +898,53 @@ fun EditTaskDialog(
                     }
                 )
                 
+                // Photo Attachment Row
+                if (photoBase64 != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(120.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                    ) {
+                        val bitmap = rememberBitmapFromBase64(photoBase64)
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap,
+                                contentDescription = "Task Photo Preview",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                        IconButton(
+                            onClick = { photoBase64 = null },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(8.dp)
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Clear,
+                                contentDescription = "Remove Photo",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { imagePickerLauncher.launch("image/*") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Image,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Add Photo Attachment")
+                    }
+                }
+                
                 // Reminder Selection Row
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -821,7 +1004,7 @@ fun EditTaskDialog(
             Button(
                 onClick = {
                     if (title.isNotBlank()) {
-                        onSave(title, description, category, reminderTime)
+                        onSave(title, description, category, reminderTime, photoBase64)
                     }
                 }
             ) {
@@ -835,4 +1018,304 @@ fun EditTaskDialog(
         },
         containerColor = MaterialTheme.colorScheme.surfaceVariant
     )
+}
+
+@Composable
+fun EmptyStateComponent(
+    onAddTaskClick: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "EmptyStateBounce")
+    
+    // Smooth floating animation
+    val offsetY by infiniteTransition.animateFloat(
+        initialValue = -8f,
+        targetValue = 8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2500, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "offsetY"
+    )
+
+    // Pulse animation for sparkles
+    val sparkleScale by infiniteTransition.animateFloat(
+        initialValue = 0.6f,
+        targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "sparkleScale"
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        // High-fidelity Canvas Illustration
+        val primaryColor = MaterialTheme.colorScheme.primary
+        val secondaryColor = MaterialTheme.colorScheme.secondary
+        val tertiaryColor = MaterialTheme.colorScheme.tertiary
+        val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
+        val onSurfaceColor = MaterialTheme.colorScheme.onSurface
+
+        Box(
+            modifier = Modifier
+                .size(180.dp)
+                .offset(y = offsetY.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val centerOffset = Offset(size.width / 2, size.height / 2)
+                
+                // 1. Draw elegant background glowing aura
+                drawCircle(
+                    color = primaryColor.copy(alpha = 0.08f),
+                    radius = size.width * 0.45f,
+                    center = centerOffset
+                )
+                
+                // 2. Draw outer dashed circular ring
+                drawCircle(
+                    color = primaryColor.copy(alpha = 0.25f),
+                    radius = size.width * 0.38f,
+                    center = centerOffset,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = 2.dp.toPx(),
+                        pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                            floatArrayOf(12f, 12f), 0f
+                        )
+                    )
+                )
+
+                // 3. Draw a sleek modern clipboard/document outline
+                val padWidth = size.width * 0.32f
+                val padHeight = size.height * 0.42f
+                val padLeft = centerOffset.x - padWidth / 2f
+                val padTop = centerOffset.y - padHeight / 2f
+                
+                val padPath = androidx.compose.ui.graphics.Path().apply {
+                    addRoundRect(
+                        androidx.compose.ui.geometry.RoundRect(
+                            rect = androidx.compose.ui.geometry.Rect(
+                                left = padLeft,
+                                top = padTop,
+                                right = padLeft + padWidth,
+                                bottom = padTop + padHeight
+                            ),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx())
+                        )
+                    )
+                }
+                
+                // Draw pad filled background
+                drawPath(
+                    path = padPath,
+                    color = surfaceVariantColor
+                )
+                // Draw pad outline
+                drawPath(
+                    path = padPath,
+                    color = primaryColor.copy(alpha = 0.7f),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = 3.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                )
+
+                // 4. Draw sleek clipboard top clamp
+                val clampWidth = padWidth * 0.45f
+                val clampHeight = size.height * 0.07f
+                val clampLeft = centerOffset.x - clampWidth / 2f
+                val clampTop = padTop - clampHeight * 0.3f
+                val clampPath = androidx.compose.ui.graphics.Path().apply {
+                    addRoundRect(
+                        androidx.compose.ui.geometry.RoundRect(
+                            rect = androidx.compose.ui.geometry.Rect(
+                                left = clampLeft,
+                                top = clampTop,
+                                right = clampLeft + clampWidth,
+                                bottom = clampTop + clampHeight
+                            ),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx())
+                        )
+                    )
+                }
+                drawPath(
+                    path = clampPath,
+                    color = secondaryColor
+                )
+
+                // 5. Draw decorative lines inside clipboard
+                val startX = padLeft + 12.dp.toPx()
+                val endX = padLeft + padWidth - 12.dp.toPx()
+                val firstLineY = padTop + 24.dp.toPx()
+                val secondLineY = padTop + 36.dp.toPx()
+                val thirdLineY = padTop + 48.dp.toPx()
+
+                drawLine(
+                    color = onSurfaceColor.copy(alpha = 0.15f),
+                    start = Offset(startX, firstLineY),
+                    end = Offset(endX, firstLineY),
+                    strokeWidth = 3.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    color = onSurfaceColor.copy(alpha = 0.15f),
+                    start = Offset(startX, secondLineY),
+                    end = Offset(endX - 20.dp.toPx(), secondLineY),
+                    strokeWidth = 3.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    color = onSurfaceColor.copy(alpha = 0.15f),
+                    start = Offset(startX, thirdLineY),
+                    end = Offset(endX - 10.dp.toPx(), thirdLineY),
+                    strokeWidth = 3.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+
+                // 6. Draw a shiny success checkmark badge overlay
+                val badgeRadius = 18.dp.toPx()
+                val badgeCenter = Offset(padLeft + padWidth - 4.dp.toPx(), padTop + padHeight - 4.dp.toPx())
+                drawCircle(
+                    color = primaryColor,
+                    radius = badgeRadius,
+                    center = badgeCenter
+                )
+                // Draw checkmark inside badge
+                val checkPath = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(badgeCenter.x - 7.dp.toPx(), badgeCenter.y)
+                    lineTo(badgeCenter.x - 2.dp.toPx(), badgeCenter.y + 5.dp.toPx())
+                    lineTo(badgeCenter.x + 8.dp.toPx(), badgeCenter.y - 5.dp.toPx())
+                }
+                drawPath(
+                    path = checkPath,
+                    color = androidx.compose.ui.graphics.Color.White,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = 2.5.dp.toPx(),
+                        cap = StrokeCap.Round,
+                        join = androidx.compose.ui.graphics.StrokeJoin.Round
+                    )
+                )
+
+                // 7. Draw floating sparkle dots around
+                // Left Sparkle
+                drawCircle(
+                    color = tertiaryColor.copy(alpha = 0.8f),
+                    radius = 5.dp.toPx() * sparkleScale,
+                    center = Offset(centerOffset.x - 65.dp.toPx(), centerOffset.y - 30.dp.toPx())
+                )
+                // Top Right Sparkle
+                drawCircle(
+                    color = secondaryColor.copy(alpha = 0.8f),
+                    radius = 4.dp.toPx() * (1.8f - sparkleScale),
+                    center = Offset(centerOffset.x + 60.dp.toPx(), centerOffset.y - 55.dp.toPx())
+                )
+                // Bottom Left Sparkle
+                drawCircle(
+                    color = primaryColor.copy(alpha = 0.6f),
+                    radius = 3.dp.toPx() * sparkleScale,
+                    center = Offset(centerOffset.x - 50.dp.toPx(), centerOffset.y + 50.dp.toPx())
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
+
+        // Compelling Title
+        Text(
+            text = "Your Slate is Clean!",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Encouraging Subtitle
+        Text(
+            text = "No tasks found. Tap below to organize your goals, reminders, and daily habits.",
+            fontSize = 14.sp,
+            lineHeight = 21.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // Encouraging action button
+        Button(
+            onClick = onAddTaskClick,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            ),
+            shape = RoundedCornerShape(24.dp),
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+            modifier = Modifier.height(48.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Add Your First Task",
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp
+            )
+        }
+    }
+}
+
+fun uriToBase64(context: android.content.Context, uri: android.net.Uri): String? {
+    return try {
+        val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
+        val originalBitmap = BitmapFactory.decodeStream(inputStream)
+        inputStream?.close()
+        if (originalBitmap == null) return null
+
+        // Resize the bitmap to keep storage/payload lightweight (max 500px dimension)
+        val maxDimension = 500
+        val width = originalBitmap.width
+        val height = originalBitmap.height
+        val (newWidth, newHeight) = if (width > height) {
+            val ratio = height.toFloat() / width.toFloat()
+            maxDimension to (maxDimension * ratio).toInt()
+        } else {
+            val ratio = width.toFloat() / height.toFloat()
+            (maxDimension * ratio).toInt() to maxDimension
+        }
+        val resizedBitmap = Bitmap.createScaledBitmap(originalBitmap, newWidth, newHeight, true)
+        
+        val outputStream = ByteArrayOutputStream()
+        resizedBitmap.compress(Bitmap.CompressFormat.JPEG, 75, outputStream)
+        val bytes = outputStream.toByteArray()
+        Base64.encodeToString(bytes, Base64.NO_WRAP)
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
+    }
+}
+
+@Composable
+fun rememberBitmapFromBase64(base64Str: String?): androidx.compose.ui.graphics.ImageBitmap? {
+    return remember(base64Str) {
+        if (base64Str.isNullOrBlank()) null else {
+            try {
+                val bytes = Base64.decode(base64Str, Base64.DEFAULT)
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                bitmap?.asImageBitmap()
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
 }
